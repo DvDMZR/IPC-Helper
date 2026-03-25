@@ -1,0 +1,456 @@
+import React, { useState } from 'react';
+import { 
+  ChevronRight, 
+  ChevronLeft, 
+  AlertTriangle, 
+  CheckCircle2, 
+  FileText, 
+  Terminal, 
+  Monitor, 
+  RefreshCw, 
+  Wifi, 
+  ClipboardCheck,
+  Search,
+  ArrowLeft,
+  Plug,
+  Wrench
+} from 'lucide-react';
+
+const App = () => {
+  const [view, setView] = useState('home'); // 'home', 'guide', 'report'
+  const [currentStepId, setCurrentStepId] = useState('start');
+  const [reportData, setReportData] = useState({
+    issueType: '',
+    serialNumber: '',
+    amsVersion: '',
+    checklistDone: [],
+    detailedObservation: '',
+    occurrenceFrequency: '',
+    occurrenceTime: '',
+    logFilesAvailable: 'no',
+    recordingAvailable: 'no'
+  });
+
+  const checklistItems = [
+    "Spannungsversorgung geprüft",
+    "Netzwerkverbindung (Ping 10.150.1.1) verifiziert",
+    "Ping zum IPC vom Maschinennetz verifiziert",
+    "MView auf anderem Gerät getestet",
+    "Feuchtigkeit im Gehäuse geprüft",
+    "IPC Software via DpService aktualisiert",
+    "Touch Kalibrierung durchgeführt"
+  ];
+
+  // Intelligenter State-Machine Flow mit konkreten Arbeitsanweisungen
+  const flow = {
+    start: {
+      title: "Was genau ist das Problem?",
+      icon: <Search className="w-8 h-8 text-blue-500" />,
+      content: "Bitte wähle das Fehlerbild aus, das aktuell auf dem IPC zu sehen ist. Wir gehen dann gemeinsam die passenden Schritte durch.",
+      options: [
+        { label: "Laufende Kühe (Running Cows)", target: "cows_1" },
+        { label: "Anwendung offline (Application offline)", target: "offline_status" },
+        { label: "Browser Absturz (Blau/Grauer Screen)", target: "crash_update" },
+        { label: "Schwarzer Bildschirm", target: "black_screen_check" }
+      ]
+    },
+
+    // --- PFAD: LAUFENDE KÜHE ---
+    cows_1: {
+      title: "Schritt 1: Wartezeit & DHCP",
+      icon: <RefreshCw className="w-8 h-8 text-blue-500" />,
+      content: "Der IPC wartet auf eine IP-Adresse vom DHCP-Server (gehostet auf dem Velos). Dieser Vorgang kann einige Minuten dauern.",
+      question: "Arbeitsanweisung: Warte bis zu 10 Minuten ab. Was passiert danach?",
+      details: "Erst wenn eine IP-Adresse bezogen wurde, lädt MView und ersetzt die Kühe.",
+      options: [
+        { label: "Bildschirm wurde nach 10 Minuten schwarz", target: "network_ping_velos" },
+        { label: "MView hat normal geladen", target: "resolved" }
+      ]
+    },
+
+    // --- PFAD: APPLICATION OFFLINE ---
+    offline_status: {
+      title: "Schritt 1: Serverstatus prüfen",
+      icon: <Wifi className="w-8 h-8 text-orange-500" />,
+      content: "Dieser Dialog erscheint bei Verlust der Netzwerkverbindung zum Velos Server. Er bleibt bestehen, bis die Verbindung wiederhergestellt ist.",
+      question: "Arbeitsanweisung: Prüfe den Status des Velos Servers.",
+      details: "Wird der Velos gerade aktualisiert oder ist er physisch ausgeschaltet?",
+      options: [
+        { label: "Ja, Velos ist im Update / Ausgeschaltet", target: "offline_wait" },
+        { label: "Nein, Velos läuft ganz normal", target: "network_ping_velos" }
+      ]
+    },
+    offline_wait: {
+      title: "Warten auf den Server",
+      icon: <RefreshCw className="w-8 h-8 text-blue-500" />,
+      content: "Solange der Velos nicht erreichbar ist, ist die Meldung 'Application offline' das beabsichtigte Verhalten.",
+      question: "Arbeitsanweisung: Warte, bis der Velos wieder hochgefahren ist.",
+      details: "MView wird danach automatisch neu laden. Dies kann einige Sekunden dauern und der Bildschirm wird kurz schwarz.",
+      options: [
+        { label: "Verstanden, MView hat danach neu geladen", target: "resolved" },
+        { label: "Velos ist wieder da, aber Meldung bleibt", target: "offline_reload" }
+      ]
+    },
+    offline_reload: {
+      title: "Schritt 2: Manueller Reload",
+      icon: <RefreshCw className="w-8 h-8 text-blue-500" />,
+      content: "Das Netzwerk scheint wieder in Ordnung zu sein, aber der automatische Reload schlägt fehl.",
+      question: "Arbeitsanweisung: Tippe auf das MVIEW Logo auf dem Bildschirm.",
+      details: "Durch den Klick auf das Logo wird die Ansicht manuell neu geladen.",
+      options: [
+        { label: "Hat geholfen, MView läuft", target: "resolved" },
+        { label: "Hat nicht geholfen, bleibt offline/schwarz", target: "network_ping_velos" }
+      ]
+    },
+
+    // --- GEMEINSAMER PFAD: NETZWERK DIAGNOSE ---
+    network_ping_velos: {
+      title: "Netzwerk-Diagnose: Ping zum Velos",
+      icon: <Terminal className="w-8 h-8 text-slate-700" />,
+      content: "Wir müssen herausfinden, an welcher Stelle das Netzwerk unterbrochen ist.",
+      question: "Arbeitsanweisung: Verbinde einen separaten Laptop mit demselben Switch, an dem der IPC angeschlossen ist. Öffne die Kommandozeile und pinge den Velos: ping 10.150.1.1",
+      details: "Dies prüft, ob die Verbindung vom IPC-Standort bis zum Server funktioniert.",
+      options: [
+        { label: "Ping war erfolgreich", target: "network_ping_ipc" },
+        { label: "Ping schlägt fehl (Zeitüberschreitung)", action: () => setReportData(p => ({...p, issueType: 'Netzwerkfehler: Velos nicht erreichbar vom IPC-Switch'})), target: "report" }
+      ]
+    },
+    network_ping_ipc: {
+      title: "Netzwerk-Diagnose: Ping zum IPC",
+      icon: <Wifi className="w-8 h-8 text-orange-500" />,
+      content: "Die Verbindung zum Server steht. Jetzt prüfen wir die Gegenrichtung und MView selbst.",
+      question: "Arbeitsanweisung: Verbinde den Laptop nun mit demselben Switch, an dem der Velos angeschlossen ist. Versuche den IPC anzupingen. Öffne parallel MView auf dem Laptop und wähle die Visualisierung dieses IPCs.",
+      details: "Dies prüft, ob der IPC im Maschinennetzwerk überhaupt noch ansprechbar ist.",
+      options: [
+        { label: "IPC antwortet nicht / MView lädt IPC nicht", action: () => setReportData(p => ({...p, issueType: 'Netzwerkfehler: IPC nicht erreichbar im Maschinennetz'})), target: "report" },
+        { label: "Netzwerk und MView vom Laptop aus einwandfrei", target: "crash_update" }
+      ]
+    },
+
+    // --- PFAD: CHROME CRASH / SOFTWARE ---
+    crash_update: {
+      title: "Software Fehlerbehebung",
+      icon: <Wrench className="w-8 h-8 text-red-500" />,
+      content: "Das Problem scheint an der lokalen Software des IPC oder dem Chrome Browser zu liegen.",
+      question: "Arbeitsanweisung: Führe ein Update der IPC Software über den DpService durch.",
+      details: "Auch wenn die neueste Version bereits installiert ist, repariert ein erneutes Update mögliche Dateisystem-Fehler und leert den Cache des Chrome Browsers. Prüfe bei dieser Gelegenheit auch direkt, ob Feuchtigkeit im IPC-Gehäuse ist.",
+      options: [
+        { label: "Update durchgeführt, Problem gelöst", target: "resolved" },
+        { label: "Update durchgeführt, Fehler bleibt bestehen", action: () => setReportData(p => ({...p, issueType: 'Software/Crash persistent nach DpService Update'})), target: "report" }
+      ]
+    },
+
+    // --- PFAD: BLACK SCREEN ---
+    black_screen_check: {
+      title: "Prüfung: Ist der IPC wirklich an?",
+      icon: <Monitor className="w-8 h-8 text-slate-800" />,
+      content: "Ein schwarzer Bildschirm bedeutet nicht automatisch, dass das Display aus ist.",
+      question: "Arbeitsanweisung: Berühre den Bildschirm. Wird der Mauszeiger sichtbar?",
+      details: "Dies hilft uns zu unterscheiden, ob ein Stromproblem vorliegt oder die Software hängt.",
+      options: [
+        { label: "Nein, Bildschirm bleibt komplett schwarz/aus", target: "power_check" },
+        { label: "Ja, Mauszeiger ist sichtbar", target: "black_screen_timing" }
+      ]
+    },
+    power_check: {
+      title: "Spannungsversorgung prüfen",
+      icon: <Plug className="w-8 h-8 text-orange-500" />,
+      content: "Der IPC scheint keinen Strom zu bekommen.",
+      question: "Arbeitsanweisung: Prüfe die Spannungsversorgung.",
+      details: "Stecken alle Kabel fest im IPC und im Switch/Netzteil? Sind die Sicherungen in Ordnung?",
+      options: [
+        { label: "Strom fehlte, jetzt geht es wieder", target: "resolved" },
+        { label: "Strom liegt an, Gerät bleibt aber komplett tot", action: () => setReportData(p => ({...p, issueType: 'Hardware defekt: Keine Reaktion trotz Strom'})), target: "report" }
+      ]
+    },
+    black_screen_timing: {
+      title: "Zeitpunkt des schwarzen Bildschirms",
+      icon: <Monitor className="w-8 h-8 text-slate-800" />,
+      content: "Der Bildschirm zeigt ein schwarzes Bild, ist aber aktiv.",
+      question: "Arbeitsanweisung: Überlege, wann der Fehler aufgetreten ist.",
+      details: "Passierte es direkt nach dem Hochfahren oder im laufenden Betrieb?",
+      options: [
+        { label: "Passierte nach 10 Minuten 'Laufende Kühe'", target: "network_ping_velos" },
+        { label: "Passierte während des Betriebs (Reload Fehler)", target: "offline_reload" }
+      ]
+    },
+
+    // --- ZIEL: GELÖST ---
+    resolved: {
+      title: "Problem erfolgreich behoben",
+      icon: <CheckCircle2 className="w-8 h-8 text-emerald-500" />,
+      content: "Hervorragend. Der IPC sollte nun wieder den normalen Betrieb aufnehmen.",
+      question: "Möchtest du zur Startseite zurückkehren oder trotzdem einen Report anlegen (z.B. für Qualitätssicherung)?",
+      details: "Wenn der Fehler gelöst ist, wird normalerweise kein Ticket benötigt.",
+      options: [
+        { label: "Zurück zur Startseite", target: "home" },
+        { label: "Trotzdem Report erstellen", action: () => setReportData(p => ({...p, issueType: 'Behobener Fehler (Zur Info)'})), target: "report" }
+      ]
+    }
+  };
+
+  const handleNextStep = (target) => {
+    if (target === 'report') setView('report');
+    else if (target === 'home') { setView('home'); setCurrentStepId('start'); }
+    else if (flow[target]) setCurrentStepId(target);
+  };
+
+  const toggleChecklistItem = (item) => {
+    setReportData(prev => ({
+      ...prev,
+      checklistDone: prev.checklistDone.includes(item)
+        ? prev.checklistDone.filter(i => i !== item)
+        : [...prev.checklistDone, item]
+    }));
+  };
+
+  const generateSummary = () => {
+    return `
+SUPPORT TICKET / QUALITY CLAIM REPORT
+--------------------------------------
+Fehlertyp: ${reportData.issueType || 'Nicht angegeben'}
+Seriennummer: ${reportData.serialNumber || 'N/A'}
+AMS Version: ${reportData.amsVersion || 'N/A'}
+
+BEOBACHTUNGEN:
+Häufigkeit: ${reportData.occurrenceFrequency || 'N/A'}
+Uhrzeit: ${reportData.occurrenceTime || 'N/A'}
+Beschreibung: ${reportData.detailedObservation || 'N/A'}
+
+CHECKLISTE STATUS:
+${checklistItems.map(item => `${reportData.checklistDone.includes(item) ? '[X]' : '[ ]'} ${item}`).join('\n')}
+
+ZUSÄTZLICHE INFOS:
+LogFiles verfügbar: ${reportData.logFilesAvailable}
+Aufnahme verfügbar: ${reportData.recordingAvailable}
+    `.trim();
+  };
+
+  const copyToClipboard = () => {
+    const text = generateSummary();
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+  };
+
+  const activeStep = flow[currentStepId] || flow.start;
+
+  return (
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans">
+      <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        
+        <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
+          <div>
+            <h1 className="text-xl">IPC Troubleshooting Hub</h1>
+            <p className="text-slate-400 text-sm">Geführte Diagnose & Report Assistent</p>
+          </div>
+          {view !== 'home' && (
+            <button 
+              onClick={() => {setView('home'); setCurrentStepId('start');}}
+              className="text-sm bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <ArrowLeft className="w-4 h-4" /> Beenden
+            </button>
+          )}
+        </div>
+
+        {view === 'home' && (
+          <div className="p-8 space-y-8">
+            <div className="grid md:grid-cols-2 gap-6">
+              <button 
+                onClick={() => setView('guide')}
+                className="group p-6 border-2 border-slate-100 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+              >
+                <div className="bg-blue-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:bg-blue-500 group-hover:text-white transition-colors">
+                  <Search className="w-6 h-6" />
+                </div>
+                <h2 className="text-lg mb-2">Troubleshooting starten</h2>
+                <p className="text-slate-600 text-sm">Schritt-für-Schritt Diagnose mit konkreten Arbeitsanweisungen zur Fehlerbehebung.</p>
+              </button>
+
+              <button 
+                onClick={() => setView('report')}
+                className="group p-6 border-2 border-slate-100 rounded-xl hover:border-emerald-500 hover:bg-emerald-50 transition-all text-left"
+              >
+                <div className="bg-emerald-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <h2 className="text-lg mb-2">Report erstellen</h2>
+                <p className="text-slate-600 text-sm">Überspringe die Diagnose und erstelle direkt einen Quality Claim.</p>
+              </button>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex gap-4">
+              <AlertTriangle className="w-6 h-6 text-amber-600 shrink-0" />
+              <div>
+                <h3 className="text-amber-900 text-sm">Pflichtschritte vor Ticket-Erstellung</h3>
+                <p className="text-amber-800 text-xs mt-1">Sollte ein Ticket nötig sein, müssen im Vorfeld die Spannungsversorgung, das Netzwerk (via Ping) und ein Update via DpService geprüft worden sein.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {view === 'guide' && (
+          <div className="p-8">
+            <div className="flex items-center gap-4 mb-8">
+              <div className="bg-slate-100 p-3 rounded-xl">
+                {activeStep.icon}
+              </div>
+              <div>
+                <span className="text-xs text-blue-600 uppercase tracking-wider">Anleitung</span>
+                <h2 className="text-2xl">{activeStep.title}</h2>
+              </div>
+            </div>
+
+            <div className="space-y-4 mb-10">
+              <div className="p-4 bg-slate-50 rounded-lg border-l-4 border-slate-300">
+                <p className="text-slate-700">{activeStep.content}</p>
+              </div>
+              <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
+                <p className="text-blue-900">{activeStep.question}</p>
+                {activeStep.details && (
+                  <p className="text-sm text-blue-700 mt-2">{activeStep.details}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+              <h3 className="mb-4 text-slate-900">Wie ist das Ergebnis der Überprüfung?</h3>
+              <div className="flex flex-col gap-3">
+                {activeStep.options.map((option, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      if (option.action) option.action();
+                      handleNextStep(option.target);
+                    }}
+                    className="flex items-center justify-between p-4 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-blue-300 group transition-all"
+                  >
+                    <span className="text-slate-700 text-left">{option.label}</span>
+                    <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-blue-500 transition-colors shrink-0 ml-4" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {view === 'report' && (
+          <div className="p-8">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-2xl">Support Ticket / Quality Claim</h2>
+              <div className="text-xs text-slate-400 bg-slate-100 px-3 py-1 rounded-full uppercase tracking-widest">Entwurf</div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-8">
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-sm text-slate-700 mb-2 uppercase tracking-tight">Fehlerbild (Vorausgefüllt aus Diagnose)</label>
+                  <select 
+                    value={reportData.issueType}
+                    onChange={(e) => setReportData({...reportData, issueType: e.target.value})}
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  >
+                    <option value="">Bitte wählen...</option>
+                    <option value="Netzwerkfehler: Velos nicht erreichbar vom IPC-Switch">Netzwerkfehler: Velos nicht erreichbar vom IPC-Switch</option>
+                    <option value="Netzwerkfehler: IPC nicht erreichbar im Maschinennetz">Netzwerkfehler: IPC nicht erreichbar im Maschinennetz</option>
+                    <option value="Software/Crash persistent nach DpService Update">Software/Crash persistent nach DpService Update</option>
+                    <option value="Hardware defekt: Keine Reaktion trotz Strom">Hardware defekt: Keine Reaktion trotz Strom</option>
+                    <option value="Behobener Fehler (Zur Info)">Behobener Fehler (Zur Info)</option>
+                    <option value="Anderes / Unbekannt">Anderes / Unbekannt</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-slate-700 mb-2 uppercase tracking-tight">Seriennummer</label>
+                    <input 
+                      type="text" 
+                      placeholder="SN-12345"
+                      value={reportData.serialNumber}
+                      onChange={(e) => setReportData({...reportData, serialNumber: e.target.value})}
+                      className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-700 mb-2 uppercase tracking-tight">AMS Version</label>
+                    <input 
+                      type="text" 
+                      placeholder="v2.4.1"
+                      value={reportData.amsVersion}
+                      onChange={(e) => setReportData({...reportData, amsVersion: e.target.value})}
+                      className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-700 mb-2 uppercase tracking-tight">Detaillierte Beobachtung</label>
+                  <textarea 
+                    rows="3"
+                    placeholder="Wann und wie tritt der Fehler auf?"
+                    value={reportData.detailedObservation}
+                    onChange={(e) => setReportData({...reportData, detailedObservation: e.target.value})}
+                    className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  ></textarea>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-slate-700 mb-2 uppercase tracking-tight">Häufigkeit</label>
+                    <input type="text" value={reportData.occurrenceFrequency} onChange={(e) => setReportData({...reportData, occurrenceFrequency: e.target.value})} className="w-full p-3 border border-slate-300 rounded-lg" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-700 mb-2 uppercase tracking-tight">Uhrzeit</label>
+                    <input type="text" value={reportData.occurrenceTime} onChange={(e) => setReportData({...reportData, occurrenceTime: e.target.value})} className="w-full p-3 border border-slate-300 rounded-lg" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-sm text-slate-700 mb-2 uppercase tracking-tight">Checkliste durchgeführt?</label>
+                  <div className="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    {checklistItems.map((item, idx) => (
+                      <label key={idx} className="flex items-start gap-3 p-2 hover:bg-white rounded-lg cursor-pointer">
+                        <input type="checkbox" checked={reportData.checklistDone.includes(item)} onChange={() => toggleChecklistItem(item)} className="mt-1" />
+                        <span className="text-sm text-slate-700">{item}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-slate-900 rounded-xl p-6 text-white">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xs uppercase tracking-widest text-slate-400">Vorschau</h3>
+                    <button onClick={copyToClipboard} className="text-xs bg-slate-800 px-3 py-1 rounded">Kopieren</button>
+                  </div>
+                  <pre className="text-[10px] font-mono whitespace-pre-wrap opacity-80 h-32 overflow-y-auto">
+                    {generateSummary()}
+                  </pre>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-10 pt-6 border-t border-slate-200 flex justify-end">
+               <button onClick={copyToClipboard} className="bg-emerald-600 text-white px-8 py-4 rounded-xl flex items-center gap-3 transition-all active:scale-95">
+                 <CheckCircle2 className="w-5 h-5" /> Fertigstellen & Kopieren
+               </button>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-slate-50 border-t border-slate-200 p-4 text-center">
+          <p className="text-slate-400 text-[10px] uppercase tracking-widest">
+            IPC Maintenance Toolkit • Nur für den internen Gebrauch
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default App;
