@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   ChevronRight, 
   ChevronLeft, 
@@ -26,9 +26,7 @@ const App = () => {
     checklistDone: [],
     detailedObservation: '',
     occurrenceFrequency: '',
-    occurrenceTime: '',
-    logFilesAvailable: 'no',
-    recordingAvailable: 'no'
+    occurrenceTime: ''
   });
 
   const checklistItems = [
@@ -42,7 +40,7 @@ const App = () => {
   ];
 
   // Intelligenter State-Machine Flow mit konkreten Arbeitsanweisungen
-  const flow = {
+  const flow = useMemo(() => ({
     start: {
       title: "Was genau ist das Problem?",
       icon: <Search className="w-8 h-8 text-blue-500" />,
@@ -187,7 +185,7 @@ const App = () => {
         { label: "Trotzdem Report erstellen", action: () => setReportData(p => ({...p, issueType: 'Behobener Fehler (Zur Info)'})), target: "report" }
       ]
     }
-  };
+  }), []);
 
   const handleNextStep = (target) => {
     if (target === 'report') setView('report');
@@ -219,23 +217,24 @@ Beschreibung: ${reportData.detailedObservation || 'N/A'}
 
 CHECKLISTE STATUS:
 ${checklistItems.map(item => `${reportData.checklistDone.includes(item) ? '[X]' : '[ ]'} ${item}`).join('\n')}
-
-ZUSÄTZLICHE INFOS:
-LogFiles verfügbar: ${reportData.logFilesAvailable}
-Aufnahme verfügbar: ${reportData.recordingAvailable}
     `.trim();
   };
 
-  const copyToClipboard = () => {
+  const copyToClipboard = async () => {
     const text = generateSummary();
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    document.body.appendChild(textArea);
-    textArea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textArea);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+    }
   };
 
+  const summary = useMemo(() => generateSummary(), [reportData]);
   const activeStep = flow[currentStepId] || flow.start;
 
   return (
@@ -320,9 +319,9 @@ Aufnahme verfügbar: ${reportData.recordingAvailable}
             <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
               <h3 className="mb-4 text-slate-900">Wie ist das Ergebnis der Überprüfung?</h3>
               <div className="flex flex-col gap-3">
-                {activeStep.options.map((option, idx) => (
+                {activeStep.options.map((option) => (
                   <button
-                    key={idx}
+                    key={option.target}
                     onClick={() => {
                       if (option.action) option.action();
                       handleNextStep(option.target);
@@ -414,8 +413,8 @@ Aufnahme verfügbar: ${reportData.recordingAvailable}
                 <div>
                   <label className="block text-sm text-slate-700 mb-2 uppercase tracking-tight">Checkliste durchgeführt?</label>
                   <div className="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                    {checklistItems.map((item, idx) => (
-                      <label key={idx} className="flex items-start gap-3 p-2 hover:bg-white rounded-lg cursor-pointer">
+                    {checklistItems.map((item) => (
+                      <label key={item} className="flex items-start gap-3 p-2 hover:bg-white rounded-lg cursor-pointer">
                         <input type="checkbox" checked={reportData.checklistDone.includes(item)} onChange={() => toggleChecklistItem(item)} className="mt-1" />
                         <span className="text-sm text-slate-700">{item}</span>
                       </label>
@@ -429,7 +428,7 @@ Aufnahme verfügbar: ${reportData.recordingAvailable}
                     <button onClick={copyToClipboard} className="text-xs bg-slate-800 px-3 py-1 rounded">Kopieren</button>
                   </div>
                   <pre className="text-[10px] font-mono whitespace-pre-wrap opacity-80 h-32 overflow-y-auto">
-                    {generateSummary()}
+                    {summary}
                   </pre>
                 </div>
               </div>
